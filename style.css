@@ -35,3 +35,25 @@ body { margin: 0; background: #0b1220; color: #e7eefc; }
 .result.bad { color: #FFB3BD; }
 
 .footer { margin-top: 14px; opacity: .7; }
+.quiz {
+  display: block;
+  padding: 10px 0 4px;
+  line-height: 2.2;
+  font-size: 18px;
+  word-break: break-word;
+}
+
+.qchar { opacity: .9; }
+.qpunc { opacity: .55; }
+.qinput {
+  width: 2.2em;
+  padding: 6px 8px;
+  margin: 0 2px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: #0e1630;
+  color: #e7eefc;
+  font-size: 18px;
+  text-align: center;
+}
+.qinput:disabled { opacity: .65; }
