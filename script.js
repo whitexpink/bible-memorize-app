@@ -16,7 +16,6 @@ function formatYMD(d) {
   return `${y}-${m}-${day}`;
 }
 function hashStringToInt(s) {
-  // 簡單 hash，穩定即可
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -30,17 +29,14 @@ function pickDailyVerse(date = new Date()) {
   return { verse: VERSES[idx], key };
 }
 
-// ===== 3) 填空規則 =====
+// ===== 3) 填空（逐字） =====
 function tokenize(text) {
-  // 把中文逐字分、英文按詞分；保留標點做 display
-  // 這個做法簡單好用；之後你要更精準可再優化。
+  // 簡單逐字拆分（中文好用；英文會變逐字）
   const tokens = [];
   for (const ch of text) tokens.push(ch);
   return tokens;
 }
-
 function buildQuizTokens(tokens, blanksRatio = 0.28) {
-  // 抽一部分「可填」字做空格（略過空白）
   const candidates = tokens
     .map((t, i) => ({ t, i }))
     .filter(x => x.t.trim() !== "");
@@ -48,7 +44,6 @@ function buildQuizTokens(tokens, blanksRatio = 0.28) {
   const blanksCount = Math.max(1, Math.floor(candidates.length * blanksRatio));
   const chosen = new Set();
 
-  // 盡量避免連續太多空格（簡單處理：隨機抽，抽到相鄰就略過）
   while (chosen.size < blanksCount) {
     const r = candidates[Math.floor(Math.random() * candidates.length)];
     if (chosen.has(r.i)) continue;
@@ -64,32 +59,71 @@ function buildQuizTokens(tokens, blanksRatio = 0.28) {
   }));
 }
 
-// ===== 4) UI =====
+// ===== 4) 完成狀態（localStorage） =====
+function doneKeyForDate(ymd) {
+  return `bible_done_${ymd}`;
+}
+function isDoneToday(ymd) {
+  return localStorage.getItem(doneKeyForDate(ymd)) === "1";
+}
+function setDoneToday(ymd) {
+  localStorage.setItem(doneKeyForDate(ymd), "1");
+}
+
+// ===== 5) UI =====
 const $today = document.getElementById("today");
+const $status = document.getElementById("status");
 const $ref = document.getElementById("ref");
 const $verse = document.getElementById("verse");
 const $quiz = document.getElementById("quiz");
 const $result = document.getElementById("result");
 
-let current = null;         // {ref,text}
-let quizTokens = [];        // [{original,isBlank,user}]
-let practiceMode = false;   // 「換一節」係練習用
+let current = null;     // {ref,text}
+let quizTokens = [];    // [{original,isBlank,user}]
+let todayKey = "";      // "YYYY-MM-DD"
+
+function renderStatus(ymd) {
+  $status.textContent = isDoneToday(ymd) ? "✅ 今日已完成" : "⬜ 未完成";
+}
 
 function renderVerse(v) {
   $ref.textContent = v.ref;
   $verse.textContent = v.text;
 }
 
+function clearResult() {
+  $result.textContent = "";
+  $result.className = "result";
+}
+function setResultOk(msg) {
+  $result.textContent = msg;
+  $result.className = "result ok";
+}
+function setResultBad(msg) {
+  $result.textContent = msg;
+  $result.className = "result bad";
+}
+
+function lockInputs(locked) {
+  const inputs = $quiz.querySelectorAll("input");
+  inputs.forEach(inp => (inp.disabled = locked));
+
+  document.getElementById("btnCheck").disabled = locked;
+  document.getElementById("btnHint").disabled = locked;
+  document.getElementById("btnReveal").disabled = locked;
+  document.getElementById("btnReset").disabled = locked;
+}
+
 function renderQuiz() {
   $quiz.innerHTML = "";
 
-  quizTokens.forEach((tok, idx) => {
+  quizTokens.forEach((tok) => {
     const wrap = document.createElement("span");
     wrap.className = "word";
 
     if (tok.isBlank) {
       const input = document.createElement("input");
-      input.setAttribute("maxlength", "1"); // 因為逐字填
+      input.setAttribute("maxlength", "1");
       input.value = tok.user || "";
       input.addEventListener("input", (e) => {
         tok.user = e.target.value;
@@ -111,38 +145,22 @@ function renderQuiz() {
   clearResult();
 }
 
-function clearResult() {
-  $result.textContent = "";
-  $result.className = "result";
-}
+function loadVerseAndQuiz() {
+  const { verse, key } = pickDailyVerse(new Date());
+  todayKey = key;
 
-function setResultOk(msg) {
-  $result.textContent = msg;
-  $result.className = "result ok";
-}
-function setResultBad(msg) {
-  $result.textContent = msg;
-  $result.className = "result bad";
-}
+  $today.textContent = key;
+  renderStatus(todayKey);
 
-function loadVerseAndQuiz({ forceRandom = false } = {}) {
-  const today = new Date();
-  const { verse, key } = pickDailyVerse(today);
-  $today.textContent = `${key}${forceRandom ? "（練習）" : ""}`;
-
-  if (forceRandom) {
-    practiceMode = true;
-    current = VERSES[Math.floor(Math.random() * VERSES.length)];
-  } else {
-    practiceMode = false;
-    current = verse;
-  }
-
+  current = verse;
   renderVerse(current);
 
   const tokens = tokenize(current.text);
   quizTokens = buildQuizTokens(tokens, 0.28);
   renderQuiz();
+
+  // 今日已完成就鎖住
+  lockInputs(isDoneToday(todayKey));
 }
 
 function checkAnswers() {
@@ -158,45 +176,52 @@ function checkAnswers() {
   if (total === 0) return setResultBad("呢節經文冇空格（重設一次試下）");
 
   if (correct === total) {
-    setResultOk("✅ 全部正確！做得好！");
+    setDoneToday(todayKey);
+    renderStatus(todayKey);
+    lockInputs(true);
+    setResultOk("✅ 全部正確！今日完成 🎉");
   } else {
     setResultBad(`❌ 命中 ${correct}/${total}。再試下～`);
   }
 }
 
 function hintOneChar() {
+  if (isDoneToday(todayKey)) return;
+
   const blanks = quizTokens
     .map((t, i) => ({ t, i }))
     .filter(x => x.t.isBlank && (x.t.user || "") !== x.t.original);
 
   if (blanks.length === 0) return setResultOk("✅ 已經全部填啱晒！");
   const pick = blanks[Math.floor(Math.random() * blanks.length)];
-  quizTokens[pick.i].user = quizTokens[pick.i].original; // 直接填入 1 個字
+  quizTokens[pick.i].user = quizTokens[pick.i].original;
   renderQuiz();
   setResultOk("💡 已提示 1 個字");
 }
 
 function revealAll() {
+  if (isDoneToday(todayKey)) return;
+
   quizTokens.forEach(tok => {
     if (tok.isBlank) tok.user = tok.original;
   });
   renderQuiz();
-  setResultOk("👀 已顯示答案（當練熟一次）");
+  setResultBad("👀 已顯示答案（未算完成）");
 }
 
 function resetQuiz() {
-  // 用同一節經文，重新抽空格
+  if (isDoneToday(todayKey)) return;
+
   const tokens = tokenize(current.text);
   quizTokens = buildQuizTokens(tokens, 0.28);
   renderQuiz();
 }
 
-// ===== 5) 綁定按鈕 =====
+// ===== 6) 綁定按鈕 =====
 document.getElementById("btnCheck").addEventListener("click", checkAnswers);
 document.getElementById("btnHint").addEventListener("click", hintOneChar);
 document.getElementById("btnReveal").addEventListener("click", revealAll);
 document.getElementById("btnReset").addEventListener("click", resetQuiz);
-document.getElementById("btnNew").addEventListener("click", () => loadVerseAndQuiz({ forceRandom: true }));
 
-// ===== 6) 啟動 =====
+// ===== 7) 啟動 =====
 loadVerseAndQuiz();
