@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-HK">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>每日背經</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1>每日背經</h1>
+      <p class="subtitle">每日一節｜填空背誦</p>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">今日日期</div>
+          <div id="today" class="mono"></div>
+        </div>
+        <div class="right">
+          <button id="btnNew" class="btn secondary" title="只用嚟練習，唔會改今日經文">換一節（練習）</button>
+        </div>
+      </div>
+
+      <div class="verseBlock">
+        <div id="ref" class="ref"></div>
+        <div id="verse" class="verse"></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="label">填空背誦</div>
+      <div id="quiz" class="quiz"></div>
+
+      <div class="actions">
+        <button id="btnCheck" class="btn">檢查答案</button>
+        <button id="btnHint" class="btn secondary">提示 1 個字</button>
+        <button id="btnReveal" class="btn danger">顯示答案</button>
+        <button id="btnReset" class="btn secondary">重設填空</button>
+      </div>
+
+      <div id="result" class="result" aria-live="polite"></div>
+    </section>
+
+    <footer class="footer">
+      <small>提示：之後你可以把經文清單換成你想背嘅版本／主題。</small>
+    </footer>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
