@@ -1,133 +1,54 @@
-// =====================
-// 設定：揀版本（translation）
-// =====================
-// ✅ 公開部署建議先用 CUV（和合本繁體）
-// 若你有授權/只做私用，可試 CUNP（新標點和合本）
-const TRANSLATION = "CUV";
-const API_BASE = "https://bolls.life";
+// ===== 1) 經文清單（你可以自己加/改） =====
+const VERSES = [
+  { ref: "詩篇 23:1", text: "耶和華是我的牧者，我必不致缺乏。" },
+  { ref: "箴言 3:5", text: "你要專心仰賴耶和華，不可倚靠自己的聰明。" },
+  { ref: "腓立比書 4:6", text: "應當一無掛慮，只要凡事藉著禱告、祈求和感謝，將你們所要的告訴神。" },
+  { ref: "馬太福音 11:28", text: "凡勞苦擔重擔的人可以到我這裡來，我就使你們得安息。" },
+  { ref: "羅馬書 8:28", text: "我們曉得萬事都互相效力，叫愛神的人得益處。" },
+  { ref: "以賽亞書 41:10", text: "你不要害怕，因為我與你同在；不要驚惶，因為我是你的神。" },
+];
 
-// =====================
-// DOM
-// =====================
-const $today = document.getElementById("today");
-const $status = document.getElementById("status");
-const $ref = document.getElementById("ref");
-const $verse = document.getElementById("verse");
-const $quiz = document.getElementById("quiz");
-const $result = document.getElementById("result");
-
-let todayKey = "";   // YYYY-MM-DD
-let current = null;  // { ref: "...", text: "..." }
-let quizTokens = []; // [{original, fillable, isBlank, user}]
-
-// =====================
-// 日期工具
-// =====================
+// ===== 2) 工具：每日固定選一節 =====
 function formatYMD(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
-
-// =====================
-// localStorage keys
-// =====================
-function doneKeyForDate(ymd) { return `bible_done_${ymd}`; }
-function verseKeyForDate(ymd) { return `bible_verse_${TRANSLATION}_${ymd}`; }
-function booksKey() { return `bible_books_${TRANSLATION}`; }
-
-function isDoneToday(ymd) {
-  return localStorage.getItem(doneKeyForDate(ymd)) === "1";
+function hashStringToInt(s) {
+  // 簡單 hash，穩定即可
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return Math.abs(h);
 }
-function setDoneToday(ymd) {
-  localStorage.setItem(doneKeyForDate(ymd), "1");
-}
-function renderStatus(ymd) {
-  $status.textContent = isDoneToday(ymd) ? "✅ 今日已完成" : "⬜ 未完成";
+function pickDailyVerse(date = new Date()) {
+  const key = formatYMD(date);
+  const idx = hashStringToInt(key) % VERSES.length;
+  return { verse: VERSES[idx], key };
 }
 
-// =====================
-// HTML -> 純文字（API text 會有 HTML）
-// =====================
-function htmlToText(html) {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  return (doc.body.textContent || "").trim();
-}
-
-// =====================
-// 取得書卷名（book id -> 中文名）
-// =====================
-async function getBooksMap() {
-  const cached = localStorage.getItem(booksKey());
-  if (cached) return JSON.parse(cached);
-
-  const url = `${API_BASE}/get-books/${encodeURIComponent(TRANSLATION)}/`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`get-books failed: ${res.status}`);
-  const books = await res.json(); // [{bookid,name,chapters,...}]
-  const map = {};
-  books.forEach(b => { map[b.bookid] = b.name; });
-
-  localStorage.setItem(booksKey(), JSON.stringify(map));
-  return map;
-}
-
-// =====================
-// 抽一節隨機經文（全本）
-// =====================
-async function fetchRandomVerse() {
-  const url = `${API_BASE}/get-random-verse/${encodeURIComponent(TRANSLATION)}/`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`random-verse failed: ${res.status}`);
-  const data = await res.json();
-  // data: { book, chapter, verse, text (html), ... }
-  const booksMap = await getBooksMap();
-  const bookName = booksMap[data.book] || `Book${data.book}`;
-  const ref = `${bookName} ${data.chapter}:${data.verse}`;
-  const text = htmlToText(data.text);
-
-  return { ref, text };
-}
-
-// =====================
-// 每日只一節：今日若未抽過，就抽一次並存起來
-// =====================
-async function getTodayVerse(ymd) {
-  const cached = localStorage.getItem(verseKeyForDate(ymd));
-  if (cached) return JSON.parse(cached);
-
-  const v = await fetchRandomVerse();
-  localStorage.setItem(verseKeyForDate(ymd), JSON.stringify(v));
-  return v;
-}
-
-// =====================
-// 填空：只遮「可背嘅字」，標點/空白照常顯示（避免一堆空位）
-// =====================
-function isFillableChar(ch) {
-  // 中文 + 英文字母/數字可背；空白/標點唔遮
-  return /[\u4E00-\u9FFFA-Za-z0-9]/.test(ch);
-}
-
+// ===== 3) 填空規則 =====
 function tokenize(text) {
-  return [...text].map(ch => ({
-    original: ch,
-    fillable: isFillableChar(ch),
-    isBlank: false,
-    user: ""
-  }));
+  // 把中文逐字分、英文按詞分；保留標點做 display
+  // 這個做法簡單好用；之後你要更精準可再優化。
+  const tokens = [];
+  for (const ch of text) tokens.push(ch);
+  return tokens;
 }
 
 function buildQuizTokens(tokens, blanksRatio = 0.28) {
+  // 抽一部分「可填」字做空格（略過空白）
   const candidates = tokens
     .map((t, i) => ({ t, i }))
-    .filter(x => x.t.fillable);
+    .filter(x => x.t.trim() !== "");
 
   const blanksCount = Math.max(1, Math.floor(candidates.length * blanksRatio));
   const chosen = new Set();
 
-  // 避免連續太多空格（可自行移除）
+  // 盡量避免連續太多空格（簡單處理：隨機抽，抽到相鄰就略過）
   while (chosen.size < blanksCount) {
     const r = candidates[Math.floor(Math.random() * candidates.length)];
     if (chosen.has(r.i)) continue;
@@ -137,19 +58,64 @@ function buildQuizTokens(tokens, blanksRatio = 0.28) {
   }
 
   return tokens.map((t, i) => ({
-    ...t,
+    original: t,
     isBlank: chosen.has(i),
-    user: ""
+    user: "",
   }));
 }
 
-// =====================
-// UI helpers
-// =====================
+// ===== 4) UI =====
+const $today = document.getElementById("today");
+const $ref = document.getElementById("ref");
+const $verse = document.getElementById("verse");
+const $quiz = document.getElementById("quiz");
+const $result = document.getElementById("result");
+
+let current = null;         // {ref,text}
+let quizTokens = [];        // [{original,isBlank,user}]
+let practiceMode = false;   // 「換一節」係練習用
+
+function renderVerse(v) {
+  $ref.textContent = v.ref;
+  $verse.textContent = v.text;
+}
+
+function renderQuiz() {
+  $quiz.innerHTML = "";
+
+  quizTokens.forEach((tok, idx) => {
+    const wrap = document.createElement("span");
+    wrap.className = "word";
+
+    if (tok.isBlank) {
+      const input = document.createElement("input");
+      input.setAttribute("maxlength", "1"); // 因為逐字填
+      input.value = tok.user || "";
+      input.addEventListener("input", (e) => {
+        tok.user = e.target.value;
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") checkAnswers();
+      });
+      wrap.appendChild(input);
+    } else {
+      const span = document.createElement("span");
+      span.className = "mask";
+      span.textContent = tok.original;
+      wrap.appendChild(span);
+    }
+
+    $quiz.appendChild(wrap);
+  });
+
+  clearResult();
+}
+
 function clearResult() {
   $result.textContent = "";
   $result.className = "result";
 }
+
 function setResultOk(msg) {
   $result.textContent = msg;
   $result.className = "result ok";
@@ -159,75 +125,26 @@ function setResultBad(msg) {
   $result.className = "result bad";
 }
 
-function lockInputs(locked) {
-  const inputs = $quiz.querySelectorAll("input");
-  inputs.forEach(inp => (inp.disabled = locked));
+function loadVerseAndQuiz({ forceRandom = false } = {}) {
+  const today = new Date();
+  const { verse, key } = pickDailyVerse(today);
+  $today.textContent = `${key}${forceRandom ? "（練習）" : ""}`;
 
-  document.getElementById("btnCheck").disabled = locked;
-  document.getElementById("btnHint").disabled = locked;
-  document.getElementById("btnReveal").disabled = locked;
-  document.getElementById("btnReset").disabled = locked;
-}
-
-function renderVerse(v) {
-  // ✅ 上方完整顯示經文
-  $ref.textContent = v.ref;
-  $verse.textContent = v.text;
-}
-
-function renderQuiz() {
-  // ✅ 填空區：連續文字 + 少量輸入框（不再一格一格）
-  $quiz.innerHTML = "";
-  clearResult();
-
-  quizTokens.forEach((tok) => {
-    if (tok.isBlank) {
-      const input = document.createElement("input");
-      input.className = "qinput"; // 需要你 style.css 加 .qinput/.qchar/.qpunc 樣式
-      input.maxLength = 1;
-      input.value = tok.user || "";
-      input.addEventListener("input", (e) => {
-        tok.user = e.target.value;
-      });
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") checkAnswers();
-      });
-      $quiz.appendChild(input);
-      return;
-    }
-
-    const span = document.createElement("span");
-    span.textContent = tok.original;
-    span.className = tok.fillable ? "qchar" : "qpunc";
-    $quiz.appendChild(span);
-  });
-}
-
-// =====================
-// 核心：載入今日經文 + 生成填空
-// =====================
-async function loadVerseAndQuiz() {
-  todayKey = formatYMD(new Date());
-  $today.textContent = todayKey;
-  renderStatus(todayKey);
-
-  try {
-    current = await getTodayVerse(todayKey);
-    renderVerse(current);
-
-    const tokens = tokenize(current.text);
-    quizTokens = buildQuizTokens(tokens, 0.28);
-    renderQuiz();
-
-    lockInputs(isDoneToday(todayKey));
-  } catch (e) {
-    setResultBad(`載入經文失敗：${e.message}`);
+  if (forceRandom) {
+    practiceMode = true;
+    current = VERSES[Math.floor(Math.random() * VERSES.length)];
+  } else {
+    practiceMode = false;
+    current = verse;
   }
+
+  renderVerse(current);
+
+  const tokens = tokenize(current.text);
+  quizTokens = buildQuizTokens(tokens, 0.28);
+  renderQuiz();
 }
 
-// =====================
-// 動作
-// =====================
 function checkAnswers() {
   let total = 0;
   let correct = 0;
@@ -241,53 +158,45 @@ function checkAnswers() {
   if (total === 0) return setResultBad("呢節經文冇空格（重設一次試下）");
 
   if (correct === total) {
-    setDoneToday(todayKey);
-    renderStatus(todayKey);
-    lockInputs(true);
-    setResultOk("✅ 全部正確！今日完成 🎉");
+    setResultOk("✅ 全部正確！做得好！");
   } else {
     setResultBad(`❌ 命中 ${correct}/${total}。再試下～`);
   }
 }
 
 function hintOneChar() {
-  if (isDoneToday(todayKey)) return;
-
   const blanks = quizTokens
     .map((t, i) => ({ t, i }))
     .filter(x => x.t.isBlank && (x.t.user || "") !== x.t.original);
 
   if (blanks.length === 0) return setResultOk("✅ 已經全部填啱晒！");
   const pick = blanks[Math.floor(Math.random() * blanks.length)];
-  quizTokens[pick.i].user = quizTokens[pick.i].original;
+  quizTokens[pick.i].user = quizTokens[pick.i].original; // 直接填入 1 個字
   renderQuiz();
   setResultOk("💡 已提示 1 個字");
 }
 
 function revealAll() {
-  if (isDoneToday(todayKey)) return;
-
   quizTokens.forEach(tok => {
     if (tok.isBlank) tok.user = tok.original;
   });
   renderQuiz();
-  setResultBad("👀 已顯示答案（未算完成）");
+  setResultOk("👀 已顯示答案（當練熟一次）");
 }
 
 function resetQuiz() {
-  if (isDoneToday(todayKey)) return;
-
+  // 用同一節經文，重新抽空格
   const tokens = tokenize(current.text);
   quizTokens = buildQuizTokens(tokens, 0.28);
   renderQuiz();
 }
 
-// =====================
-// 綁定按鈕 + 啟動
-// =====================
+// ===== 5) 綁定按鈕 =====
 document.getElementById("btnCheck").addEventListener("click", checkAnswers);
 document.getElementById("btnHint").addEventListener("click", hintOneChar);
 document.getElementById("btnReveal").addEventListener("click", revealAll);
 document.getElementById("btnReset").addEventListener("click", resetQuiz);
+document.getElementById("btnNew").addEventListener("click", () => loadVerseAndQuiz({ forceRandom: true }));
 
+// ===== 6) 啟動 =====
 loadVerseAndQuiz();
